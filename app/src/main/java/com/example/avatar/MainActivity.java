@@ -121,36 +121,27 @@ public class MainActivity extends AppCompatActivity {
                     OUTPUT_LANDMARKS_STREAM_NAME_FACE_MESH,
                     (packet) -> {
                         byte[] landmarksRaw = PacketGetter.getProtoBytes(packet);
-                        Log.v(TAG, "Received face mesh landmarks packet.");
+                        //Log.v(TAG, "Received face mesh landmarks packet.");
                         try {
                             NormalizedLandmarkList multiFaceLandmarks = NormalizedLandmarkList.parseFrom(landmarksRaw);
-                            Log.v(
-                                    TAG,
-                                    "[TS:"
-                                            + packet.getTimestamp()
-                                            + "] ");
                             //+ getMultiFaceLandmarksDebugString(multiFaceLandmarks));
                             //String face_landmarks = getHolisticLandmarksDebugString(multiFaceLandmarks, "face");
                             //publishMessage(face_landmarks);
                             JSONObject landmarks_json_object = getLandmarksJsonObject(multiFaceLandmarks, "face");
-                            publishJsonMessage(landmarks_json_object);
+                            JSONObject face_landmarks_json_object = getFaceLandmarkJsonObject(landmarks_json_object);
+                            publishJsonMessage(face_landmarks_json_object);
                         } catch (InvalidProtocolBufferException | JSONException e) {
                             e.printStackTrace();
                         }
                     });
-
+/*
             processor.addPacketCallback(
                     OUTPUT_LANDMARKS_STREAM_NAME_RIGHT_HAND,
                     (packet) -> {
                         byte[] landmarksRaw = PacketGetter.getProtoBytes(packet);
-                        Log.v(TAG, "Received right hand landmarks packet.");
+                        //Log.v(TAG, "Received right hand landmarks packet.");
                         try {
                             NormalizedLandmarkList RightHandLandmarks = NormalizedLandmarkList.parseFrom(landmarksRaw);
-                            Log.v(
-                                    TAG,
-                                    "[TS:"
-                                            + packet.getTimestamp()
-                                            + "] ");
                             //+ getMultiFaceLandmarksDebugString(multiFaceLandmarks));
                             //String right_hand_landmarks = getHolisticLandmarksDebugString(RightHandLandmarks, "right_hand");
                             //publishMessage(right_hand_landmarks);
@@ -165,14 +156,9 @@ public class MainActivity extends AppCompatActivity {
                     OUTPUT_LANDMARKS_STREAM_NAME_LEFT_HAND,
                     (packet) -> {
                         byte[] landmarksRaw = PacketGetter.getProtoBytes(packet);
-                        Log.v(TAG, "Received left hand landmarks packet.");
+                        //Log.v(TAG, "Received left hand landmarks packet.");
                         try {
                             NormalizedLandmarkList LeftHandLandmarks = NormalizedLandmarkList.parseFrom(landmarksRaw);
-                            Log.v(
-                                    TAG,
-                                    "[TS:"
-                                            + packet.getTimestamp()
-                                            + "] ");
                             //+ getMultiFaceLandmarksDebugString(multiFaceLandmarks));
                             //String left_hand_landmarks = getHolisticLandmarksDebugString(LeftHandLandmarks, "left_hand");
                             //publishMessage(left_hand_landmarks);
@@ -187,14 +173,9 @@ public class MainActivity extends AppCompatActivity {
                     OUTPUT_LANDMARKS_STREAM_NAME_POSE,
                     (packet) -> {
                         byte[] landmarksRaw = PacketGetter.getProtoBytes(packet);
-                        Log.v(TAG, "Received pose landmarks packet.");
+                        //Log.v(TAG, "Received pose landmarks packet.");
                         try {
                             NormalizedLandmarkList PoseLandmarks = NormalizedLandmarkList.parseFrom(landmarksRaw);
-                            Log.v(
-                                    TAG,
-                                    "[TS:"
-                                            + packet.getTimestamp()
-                                            + "] ");
                             //+ getMultiFaceLandmarksDebugString(multiFaceLandmarks));
                             //String pose_landmarks = getHolisticLandmarksDebugString(PoseLandmarks, "pose");
                             //publishMessage(pose_landmarks);
@@ -203,8 +184,41 @@ public class MainActivity extends AppCompatActivity {
                         } catch (InvalidProtocolBufferException | JSONException e) {
                             e.printStackTrace();
                         }
-                    });
+                    });*/
         }
+    }
+
+    private JSONObject getFaceLandmarkJsonObject(JSONObject landmarks_json_object) throws JSONException {
+        JSONObject face_landmarks_json_object = new JSONObject();
+        String mouth = getMouthDistance(landmarks_json_object);
+        Log.v("dis",mouth);
+        face_landmarks_json_object.put("mouth", mouth); //get mouth distance
+
+
+        return face_landmarks_json_object;
+    }
+
+    private String getMouthDistance(JSONObject landmarks_json_object) {
+        String mouth_distance_rank = "";
+        try {
+            JSONObject up_Y = landmarks_json_object.getJSONObject("face_landmark[13]");
+            double up_mouth_Y = up_Y.getDouble("Y");
+            JSONObject down_Y = landmarks_json_object.getJSONObject("face_landmark[14]");
+            double down_mouth_Y = down_Y.getDouble("Y");
+            double mouth_distance = Double.parseDouble(String.format("%.3f", down_mouth_Y - up_mouth_Y));
+            if(mouth_distance <= 0.005){
+                mouth_distance_rank = "0";
+            }
+            else if(mouth_distance >= 0.09){
+                mouth_distance_rank = "49";
+            }
+            else{
+                mouth_distance_rank = String.valueOf((int)Math.round(mouth_distance*565-1.825));
+            }
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        return mouth_distance_rank;
     }
 
     private static String getHolisticLandmarksDebugString(NormalizedLandmarkList landmarks, String location) {
@@ -278,7 +292,6 @@ public class MainActivity extends AppCompatActivity {
             int landmarkIndex = 0;
             for (NormalizedLandmark landmark : landmarks.getLandmarkList()){
                 JSONObject landmarks_json_object_part = new JSONObject();
-                landmarks_json_object_part.put("landmark_index", landmarkIndex);
                 landmarks_json_object_part.put("X", landmark.getX());
                 landmarks_json_object_part.put("Y", landmark.getY());
                 landmarks_json_object_part.put("Z", landmark.getZ());
@@ -291,7 +304,6 @@ public class MainActivity extends AppCompatActivity {
             int rlandmarkIndex = 0;
             for (NormalizedLandmark landmark : landmarks.getLandmarkList()) {
                 JSONObject landmarks_json_object_part = new JSONObject();
-                landmarks_json_object_part.put("landmark_index", rlandmarkIndex);
                 landmarks_json_object_part.put("X", landmark.getX());
                 landmarks_json_object_part.put("Y", landmark.getY());
                 landmarks_json_object_part.put("Z", landmark.getZ());
@@ -304,7 +316,6 @@ public class MainActivity extends AppCompatActivity {
                 int llandmarkIndex = 0;
                 for (NormalizedLandmark landmark : landmarks.getLandmarkList()) {
                     JSONObject landmarks_json_object_part = new JSONObject();
-                    landmarks_json_object_part.put("landmark_index", llandmarkIndex);
                     landmarks_json_object_part.put("X", landmark.getX());
                     landmarks_json_object_part.put("Y", landmark.getY());
                     landmarks_json_object_part.put("Z", landmark.getZ());
@@ -317,7 +328,6 @@ public class MainActivity extends AppCompatActivity {
             int plandmarkIndex = 0;
             for (NormalizedLandmark landmark : landmarks.getLandmarkList()) {
                 JSONObject landmarks_json_object_part = new JSONObject();
-                landmarks_json_object_part.put("landmark_index", plandmarkIndex);
                 landmarks_json_object_part.put("X", landmark.getX());
                 landmarks_json_object_part.put("Y", landmark.getY());
                 landmarks_json_object_part.put("Z", landmark.getZ());
