@@ -42,7 +42,7 @@ import org.json.JSONObject;
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
     
-    private static final String BINARY_GRAPH_NAME = "holistic_tracking_aar.binarypb";
+    private static final String BINARY_GRAPH_NAME = "holistic_iris.binarypb";
     private static final String INPUT_VIDEO_STREAM_NAME = "input_video";
     private static final String OUTPUT_VIDEO_STREAM_NAME = "output_video";
     private static final CameraHelper.CameraFacing CAMERA_FACING = CameraHelper.CameraFacing.FRONT;
@@ -54,6 +54,7 @@ public class MainActivity extends AppCompatActivity {
     private static final boolean FLIP_FRAMES_VERTICALLY = true;
     private static final String INPUT_NUM_FACES_SIDE_PACKET_NAME = "num_faces";
     private static final String OUTPUT_LANDMARKS_STREAM_NAME_FACE_MESH = "face_landmarks";
+    private static final String OUTPUT_LANDMARKS_STREAM_NAME_IRIS = "iris_landmarks";
     private static final String OUTPUT_LANDMARKS_STREAM_NAME_POS_ROI = "pose_roi";
     private static final String OUTPUT_LANDMARKS_STREAM_NAME_RIGHT_HAND = "right_hand_landmarks";
     private static final String OUTPUT_LANDMARKS_STREAM_NAME_LEFT_HAND = "left_hand_landmarks";
@@ -191,14 +192,19 @@ public class MainActivity extends AppCompatActivity {
     private JSONObject getFaceLandmarkJsonObject(JSONObject landmarks_json_object) throws JSONException {
         JSONObject face_landmarks_json_object = new JSONObject();
         String mouth = getMouthDistance(landmarks_json_object);
-        Log.v("dis",mouth);
-        face_landmarks_json_object.put("mouth", mouth); //get mouth distance
-
-
+        face_landmarks_json_object.put("open_mouth", mouth); //get mouth distance
+        String left_eye = getLeftEyeDistance(landmarks_json_object);
+        face_landmarks_json_object.put("blink_left_eye", left_eye); //get left_eye
+        String right_eye = getRightEyeDistance(landmarks_json_object);
+        face_landmarks_json_object.put("blink_right_eye", right_eye); //get right_eye
+        String left_mouth_angle = getLeftMouthAngle(landmarks_json_object);
+        face_landmarks_json_object.put("left_mouth_angle", left_mouth_angle); //get left_mouth_angle
+        String right_mouth_angle = getRightMouthAngle(landmarks_json_object);
+        face_landmarks_json_object.put("right_mouth_angle", right_mouth_angle); //get right_mouth_angle
         return face_landmarks_json_object;
     }
 
-    private String getMouthDistance(JSONObject landmarks_json_object) {
+    private String getMouthDistance(JSONObject landmarks_json_object){
         String mouth_distance_rank = "";
         try {
             JSONObject up_Y = landmarks_json_object.getJSONObject("face_landmark[13]");
@@ -221,6 +227,130 @@ public class MainActivity extends AppCompatActivity {
         return mouth_distance_rank;
     }
 
+    private String getLeftEyeDistance(JSONObject landmarks_json_object){
+        String blink_left_eye = "0";
+        try {
+            JSONObject left_up_Z = landmarks_json_object.getJSONObject("face_landmark[4]");
+            double center = left_up_Z.getDouble("Z");
+            JSONObject left_up_Y = landmarks_json_object.getJSONObject("face_landmark[386]");
+            double left_up_eye_Y = left_up_Y.getDouble("Y");
+            JSONObject left_down_Y = landmarks_json_object.getJSONObject("face_landmark[374]");
+            double left_down_eye_Y = left_down_Y.getDouble("Y");
+            double left_eye_distance = left_down_eye_Y - left_up_eye_Y;
+            double center_Z = Double.parseDouble(String.format("%.2f", center));
+            //Log.v("left", String.valueOf(left_eye_distance));
+            //Log.v("center", String.valueOf(center_Z));
+            if (left_eye_distance < center_Z*(-0.1)){
+                blink_left_eye = "1";
+            }
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        return blink_left_eye;
+    }
+
+    private String getRightEyeDistance(JSONObject landmarks_json_object){
+        String blink_right_eye = "0";
+        try {
+            JSONObject right_up_Z = landmarks_json_object.getJSONObject("face_landmark[4]");
+            double center = right_up_Z.getDouble("Z");
+            JSONObject right_up_Y = landmarks_json_object.getJSONObject("face_landmark[159]");
+            double right_up_eye_Y = right_up_Y.getDouble("Y");
+            JSONObject right_down_Y = landmarks_json_object.getJSONObject("face_landmark[145]");
+            double right_down_eye_Y = right_down_Y.getDouble("Y");
+            double right_eye_distance = right_down_eye_Y - right_up_eye_Y;
+            double center_Z = Double.parseDouble(String.format("%.2f", center));
+            //Log.v("right", String.valueOf(right_eye_distance));
+            //Log.v("center", String.valueOf(center_Z));
+            if (right_eye_distance < center_Z*(-0.1)){
+                blink_right_eye = "1";
+            }
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        return blink_right_eye;
+    }
+
+    private String getRightMouthAngle(JSONObject landmarks_json_object){
+        String mouth_angle = "0";
+        try {
+            JSONObject x1 = landmarks_json_object.getJSONObject("face_landmark[267]");
+            double left_up_mouth_x1 = x1.getDouble("X");
+            JSONObject x2 = landmarks_json_object.getJSONObject("face_landmark[409]");
+            double left_up_mouth_x2 = x2.getDouble("X");
+            JSONObject y1 = landmarks_json_object.getJSONObject("face_landmark[267]");
+            double left_up_mouth_y1 = y1.getDouble("Y");
+            JSONObject y2 = landmarks_json_object.getJSONObject("face_landmark[409]");
+            double left_up_mouth_y2 = y2.getDouble("Y");
+
+            JSONObject x3 = landmarks_json_object.getJSONObject("face_landmark[312]");
+            double left_down_mouth_x3 = x3.getDouble("X");
+            JSONObject x4 = landmarks_json_object.getJSONObject("face_landmark[415]");
+            double left_down_mouth_x4 = x4.getDouble("X");
+            JSONObject y3 = landmarks_json_object.getJSONObject("face_landmark[312]");
+            double left_down_mouth_y3 = y3.getDouble("Y");
+            JSONObject y4 = landmarks_json_object.getJSONObject("face_landmark[415]");
+            double left_down_mouth_y4 = y4.getDouble("Y");
+            double angle1 = Math.atan2(left_up_mouth_y1 - left_up_mouth_y2, left_up_mouth_x1 - left_up_mouth_x2);
+            double angle2 = Math.atan2(left_down_mouth_y3 - left_down_mouth_y4, left_down_mouth_x3 - left_down_mouth_x4);
+            double angle = Math.abs(angle1) - Math.abs(angle2);
+            angle = Double.parseDouble(String.format("%.2f", angle));
+            //Log.v("right_angle", String.valueOf(angle));
+
+            if (angle >-0.2 & angle <= -0.1){
+                mouth_angle = "1";
+            }else if (angle >-0.1 & angle <= 0){
+                mouth_angle = "2";
+            }else if (angle >0 & angle <= 0.1){
+                mouth_angle = "3";
+            }
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        return mouth_angle;
+    }
+
+    private String getLeftMouthAngle(JSONObject landmarks_json_object){
+        String mouth_angle = "0";
+        try {
+            JSONObject x1 = landmarks_json_object.getJSONObject("face_landmark[37]");
+            double left_up_mouth_x1 = x1.getDouble("X");
+            JSONObject x2 = landmarks_json_object.getJSONObject("face_landmark[185]");
+            double left_up_mouth_x2 = x2.getDouble("X");
+            JSONObject y1 = landmarks_json_object.getJSONObject("face_landmark[37]");
+            double left_up_mouth_y1 = y1.getDouble("Y");
+            JSONObject y2 = landmarks_json_object.getJSONObject("face_landmark[185]");
+            double left_up_mouth_y2 = y2.getDouble("Y");
+
+            JSONObject x3 = landmarks_json_object.getJSONObject("face_landmark[82]");
+            double left_down_mouth_x3 = x3.getDouble("X");
+            JSONObject x4 = landmarks_json_object.getJSONObject("face_landmark[191]");
+            double left_down_mouth_x4 = x4.getDouble("X");
+            JSONObject y3 = landmarks_json_object.getJSONObject("face_landmark[82]");
+            double left_down_mouth_y3 = y3.getDouble("Y");
+            JSONObject y4 = landmarks_json_object.getJSONObject("face_landmark[191]");
+            double left_down_mouth_y4 = y4.getDouble("Y");
+            double angle1 = Math.atan2(left_up_mouth_y1 - left_up_mouth_y2, left_up_mouth_x1 - left_up_mouth_x2);
+            double angle2 = Math.atan2(left_down_mouth_y3 - left_down_mouth_y4, left_down_mouth_x3 - left_down_mouth_x4);
+            double angle = Math.abs(angle1) - Math.abs(angle2);
+            angle = Double.parseDouble(String.format("%.2f", angle));
+            //Log.v("left_angle", String.valueOf(angle));
+
+            if (angle >0.1 & angle <= 0.2){
+                mouth_angle = "1";
+            }else if (angle >0 & angle <= 0.1){
+                mouth_angle = "2";
+            }else if (angle >-0.1 & angle <= 0){
+                mouth_angle = "3";
+            }
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        return mouth_angle;
+    }
+
+
+
     private static String getHolisticLandmarksDebugString(NormalizedLandmarkList landmarks, String location) {
         String landmarksString = "";
         if (location == "face"){
@@ -238,6 +368,21 @@ public class MainActivity extends AppCompatActivity {
                                 + ")\n";
                 ++landmarkIndex;
         }}
+        else if(location == "iris"){
+            int irislandmarkIndex = 0;
+            for (NormalizedLandmark landmark : landmarks.getLandmarkList()) {
+                landmarksString +=
+                        "\t\tIrisLandmark["
+                                + irislandmarkIndex
+                                + "]: ("
+                                + landmark.getX()
+                                + ", "
+                                + landmark.getY()
+                                + ", "
+                                + landmark.getZ()
+                                + ")\n";
+                ++irislandmarkIndex;
+            }}
         else if(location == "right_hand"){
                 int rhlandmarkIndex = 0;
                 for (NormalizedLandmark landmark : landmarks.getLandmarkList()) {
@@ -338,6 +483,7 @@ public class MainActivity extends AppCompatActivity {
         }
         return landmarks_json_object;
     }
+
 
     Thread subscribeThread;
     Thread publishThread;
@@ -497,12 +643,11 @@ public class MainActivity extends AppCompatActivity {
                         Connection connection = factory.newConnection();
                         Channel ch = connection.createChannel();
                         ch.confirmSelect();
-
+                        ch.exchangeDeclare("oneplus", "topic" ,true);
                         while (true) {
                             //String message = queue.takeFirst();
                             JSONObject message = json_queue.takeFirst();
                             try{
-                                ch.exchangeDeclare("oneplus", "topic" ,true);
                                 //String queueName = ch.queueDeclare().getQueue();
                                 //ch.queueBind(queueName, "oneplus", "chat");
                                 //ch.basicPublish("oneplus", "chat", null, message.getBytes());
