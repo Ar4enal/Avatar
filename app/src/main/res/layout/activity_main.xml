@@ -11,14 +11,22 @@
         android:layout_width="fill_parent"
         android:layout_height="fill_parent"
         android:layout_weight="1"
+        app:layout_constraintBottom_toBottomOf="parent"
         tools:ignore="MissingConstraints">
 
         <TextView
             android:id="@+id/no_camera_access_view"
             android:layout_width="fill_parent"
-            android:layout_height="fill_parent"
+            android:layout_height="match_parent"
             android:gravity="center"
             android:text="@string/no_camera_access" />
+
+        <Button
+            android:id="@+id/enter_ip"
+            android:layout_width="121dp"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|right"
+            android:text="TCP SERVER IP" />
 
     </FrameLayout>
 

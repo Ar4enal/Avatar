@@ -1,8 +1,11 @@
 package com.example.avatar;
 
+import android.content.Context;
+import android.content.DialogInterface;
 import android.graphics.SurfaceTexture;
 import android.os.Bundle;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.os.StrictMode;
@@ -12,6 +15,9 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.Toast;
 
 import com.google.mediapipe.components.CameraHelper;
 import com.google.mediapipe.components.CameraXPreviewHelper;
@@ -25,6 +31,7 @@ import com.google.mediapipe.formats.proto.LandmarkProto.NormalizedLandmarkList;
 import com.google.mediapipe.framework.Packet;
 import com.google.mediapipe.framework.PacketGetter;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.Socket;
@@ -44,7 +51,7 @@ import com.rabbitmq.client.ConnectionFactory;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements View.OnClickListener {
     private static final String TAG = "MainActivity";
     
     private static final String BINARY_GRAPH_NAME = "holistic_iris.binarypb";
@@ -66,8 +73,9 @@ public class MainActivity extends AppCompatActivity {
 
     private static final boolean USE_FRONT_CAMERA = true;
     private boolean haveAddedSidePackets = false;
-    private static final String serverAddress = "192.168.0.140";
+    private static String serveraddress = "";   //192.168.50.3
     private static final Integer port = 5566;
+    private Button enter_ip;
 
     static {
         // Load all native libraries needed by the app.
@@ -96,6 +104,8 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        bindView();
+        final String[] serverAddress = {""};
 
         if (android.os.Build.VERSION.SDK_INT > 9) {
             StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
@@ -106,7 +116,16 @@ public class MainActivity extends AppCompatActivity {
 
         //setupConnectionFactory();
         //publishToAMQP();
-        send_TCP(serverAddress, port);
+/*        confirm.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                serverAddress[0] = server_ip.getText().toString();
+                send_TCP(serverAddress[0], port);
+                Log.v("TCP server ip", serverAddress[0]);
+            }
+        });*/
+        //send_TCP(serveraddress, port);
+
 
         // Initialize asset manager so that MediaPipe native libraries can access the app assets, e.g.,
         // binary graphs.
@@ -137,6 +156,7 @@ public class MainActivity extends AppCompatActivity {
                             JSONObject landmarks_json_object = getLandmarksJsonObject(multiFaceLandmarks, "face");
                             JSONObject face_landmarks_json_object = getFaceLandmarkJsonObject(landmarks_json_object);
                             publishJsonMessage(face_landmarks_json_object);
+                            //json_message = face_landmarks_json_object.toString();
                         } catch (InvalidProtocolBufferException | JSONException e) {
                             e.printStackTrace();
                         }
@@ -197,6 +217,10 @@ public class MainActivity extends AppCompatActivity {
 
     private JSONObject getFaceLandmarkJsonObject(JSONObject landmarks_json_object) throws JSONException {
         JSONObject face_landmarks_json_object = new JSONObject();
+
+        String head_turn = getHeadTurn(landmarks_json_object);
+        face_landmarks_json_object.put("head_turn", head_turn); //get head rotation
+
         String head_rotation = getHeadRotation(landmarks_json_object);
         face_landmarks_json_object.put("head_rotation", head_rotation); //get head rotation
 
@@ -302,8 +326,19 @@ public class MainActivity extends AppCompatActivity {
             double left_down_eye_Y = left_down_Y.getDouble("Y");
             double left_eye_distance = left_down_eye_Y - left_up_eye_Y;
             double center_Z = Double.parseDouble(String.format("%.3f", center));
-            //Log.v("left", String.valueOf(left_eye_distance));
-            //Log.v("left_center", String.valueOf(center_Z));
+
+            JSONObject y1 = landmarks_json_object.getJSONObject("face_landmark[356]");
+            double left_ear_y1 = y1.getDouble("Y");
+            JSONObject y2 = landmarks_json_object.getJSONObject("face_landmark[127]");
+            double right_ear_y2 = y2.getDouble("Y");
+            JSONObject center_y = landmarks_json_object.getJSONObject("face_landmark[168]");
+            double nose_center_y = center_y.getDouble("Y");
+            double ear_center_y = (left_ear_y1 + right_ear_y2)/2;
+            double y = Double.parseDouble(String.format("%.2f", nose_center_y - ear_center_y));
+
+            /*Log.v("left", String.valueOf(left_eye_distance));
+            Log.v("left_center", String.valueOf(center_Z));
+            Log.v("y", String.valueOf(y+0.03));*/
             double c = center_Z * -1 + 0.01;
             if (left_eye_distance - c >= 0.013){
                 left_eyebrow = "1";
@@ -327,8 +362,19 @@ public class MainActivity extends AppCompatActivity {
             double right_down_eye_Y = right_down_Y.getDouble("Y");
             double right_eye_distance = right_down_eye_Y - right_up_eye_Y;
             double center_Z = Double.parseDouble(String.format("%.3f", center));
-            //Log.v("right", String.valueOf(right_eye_distance));
-            //Log.v("right_center", String.valueOf(center_Z));
+
+            JSONObject y1 = landmarks_json_object.getJSONObject("face_landmark[356]");
+            double left_ear_y1 = y1.getDouble("Y");
+            JSONObject y2 = landmarks_json_object.getJSONObject("face_landmark[127]");
+            double right_ear_y2 = y2.getDouble("Y");
+            JSONObject center_y = landmarks_json_object.getJSONObject("face_landmark[168]");
+            double nose_center_y = center_y.getDouble("Y");
+            double ear_center_y = (left_ear_y1 + right_ear_y2)/2;
+            double y = Double.parseDouble(String.format("%.2f", nose_center_y - ear_center_y));
+
+            /*Log.v("right", String.valueOf(right_eye_distance));
+            Log.v("right_center", String.valueOf(center_Z));
+            Log.v("y", String.valueOf(y+0.03));*/
             double c = center_Z * -1 + 0.01;
             if (right_eye_distance - c >= 0.013){
                 right_eyebrow = "1";
@@ -446,7 +492,12 @@ public class MainActivity extends AppCompatActivity {
             double ear_center_y = (left_ear_y1 + right_ear_y2)/2;
             double ear_center_z = (left_ear_z1 + right_ear_z2)/2;
 
-            //Log.v("head_turn", String.valueOf(angle));
+            double x = Double.parseDouble(String.format("%.2f", nose_center_x - ear_center_x));
+            double y = Double.parseDouble(String.format("%.2f", nose_center_y - ear_center_y));
+            double z = Double.parseDouble(String.format("%.2f", nose_center_z - ear_center_z));
+            head_turn = x + "," + y + "," + z;
+            //Log.v("head_turn", String.valueOf(head_turn));
+
         } catch (JSONException e) {
             e.printStackTrace();
         }
@@ -637,7 +688,7 @@ public class MainActivity extends AppCompatActivity {
     void publishJsonMessage(JSONObject message) {
         //Adds a message to internal blocking queue
         try {
-            //Log.d("","[q] " + message);
+            Log.d("","[q] " + message);
             json_queue.putLast(message);
         } catch (InterruptedException e) {
             e.printStackTrace();
@@ -809,30 +860,59 @@ public class MainActivity extends AppCompatActivity {
         publishThread = new Thread(new Runnable() {
             @Override
             public void run() {
-                while(true) {
                     try {
                         Socket s = new Socket(serverAddress, port);
                         OutputStream out = s.getOutputStream();
                         while (true) {
                             JSONObject message = json_queue.takeFirst();
                             out.write(message.toString().getBytes());
+                            Log.v("", "[s] " + message);
                             out.flush();
-                            Log.d("", "[s] " + message);
+                            //Log.v("", "[s] " + message);
                         }
-                    } catch (InterruptedException e) {
-                        break;
                     } catch (Exception e) {
                         Log.d("", "Connection broken: " + e.getClass().getName());
-                        try {
-                            Thread.sleep(5000); //sleep and then try again
-                        } catch (InterruptedException e1) {
-                            break;
-                        }
+
                     }
-                }
+
             }
         });
         publishThread.start();
+    }
+
+    private void bindView(){
+        enter_ip = (Button) findViewById(R.id.enter_ip);
+        enter_ip.setOnClickListener(this);
+    }
+
+    @Override
+    public void onClick(View v){
+        if (v.getId() == R.id.enter_ip){
+            AlertDialog.Builder dialog = new AlertDialog.Builder(MainActivity.this);
+            dialog.setTitle("Please enter TCP server IP address");
+            final View view = View.inflate(MainActivity.this, R.layout.tcpserver_ip, null);
+            EditText et = view.findViewById(R.id.server_ip);
+            dialog.setView(view);
+            dialog.setPositiveButton("confirm", new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialogInterface, int i) {
+                    String ip = et.getText().toString();
+                    Toast.makeText(MainActivity.this, "TCP server ip:" + ip, Toast.LENGTH_SHORT).show();
+                    json_queue.clear();
+                    serveraddress = ip;
+                    send_TCP(serveraddress, port);
+                    dialogInterface.cancel();
+                }
+            });
+
+            dialog.setNegativeButton("cancel", new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialogInterface, int i) {
+                    dialogInterface.cancel();
+                }
+            });
+            dialog.show();
+        }
     }
 
 }
