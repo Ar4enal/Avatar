@@ -63,4 +63,11 @@ dependencies {
     annotationProcessor "com.google.auto.value:auto-value:$auto_value_version"
     implementation 'com.rabbitmq:amqp-client:5.13.0'
     implementation 'com.alibaba:fastjson:1.2.40'
+    implementation 'org.webrtc:google-webrtc:1.0.28513'
+    implementation 'com.google.code.gson:gson:2.8.5'
+    implementation 'com.github.nkzawa:socket.io-client:0.4.2'
+    implementation('io.socket:socket.io-client:0.8.3') {
+        // excluding org.json which is provided by Android
+        exclude group: 'org.json', module: 'json'
+    }
 }

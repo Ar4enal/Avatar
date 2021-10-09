@@ -9,6 +9,7 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.os.StrictMode;
+import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
 import android.util.Size;
 import android.view.SurfaceHolder;
@@ -17,6 +18,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.google.mediapipe.components.CameraHelper;
@@ -50,8 +52,18 @@ import com.rabbitmq.client.ConnectionFactory;
 
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.webrtc.Camera1Enumerator;
+import org.webrtc.IceCandidate;
+import org.webrtc.MediaConstraints;
+import org.webrtc.MediaStream;
+import org.webrtc.PeerConnection;
+import org.webrtc.PeerConnectionFactory;
+import org.webrtc.SessionDescription;
+import org.webrtc.SurfaceViewRenderer;
+import org.webrtc.VideoCapturer;
+import org.webrtc.VideoTrack;
 
-public class MainActivity extends AppCompatActivity implements View.OnClickListener {
+public class MainActivity extends AppCompatActivity implements View.OnClickListener, SignalingClient.Callback{
     private static final String TAG = "MainActivity";
     
     private static final String BINARY_GRAPH_NAME = "holistic_iris.binarypb";
@@ -74,8 +86,14 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private static final boolean USE_FRONT_CAMERA = true;
     private boolean haveAddedSidePackets = false;
     private static String serveraddress = "";   //192.168.50.3
-    private static final Integer port = 5566;
+    private static final Integer port = 5567;
     private Button enter_ip;
+
+    PeerConnectionFactory peerConnectionFactory;
+    PeerConnection peerConnection;
+    MediaStream mediaStream;
+    SurfaceViewRenderer localView;
+    SurfaceViewRenderer remoteView;
 
     static {
         // Load all native libraries needed by the app.
@@ -142,77 +160,73 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         processor.getVideoSurfaceOutput().setFlipY(FLIP_FRAMES_VERTICALLY);
 
         PermissionHelper.checkAndRequestCameraPermissions(this);
+        processor.addPacketCallback(
+                OUTPUT_LANDMARKS_STREAM_NAME_FACE_MESH,
+                (packet) -> {
+                    byte[] landmarksRaw = PacketGetter.getProtoBytes(packet);
+                    //Log.d(TAG, "Received face mesh landmarks packet.");
+                    try {
+                        NormalizedLandmarkList multiFaceLandmarks = NormalizedLandmarkList.parseFrom(landmarksRaw);
+                        JSONObject landmarks_json_object = getLandmarksJsonObject(multiFaceLandmarks, "face");
+                        //JSONObject face_landmarks_json_object = getFaceLandmarkJsonObject(landmarks_json_object);
+                        //Log.d("face", String.valueOf(landmarks_json_object));
+                        publishJsonMessage(landmarks_json_object);
+                        //json_message = face_landmarks_json_object.toString();
+                    } catch (InvalidProtocolBufferException | JSONException e) {
+                        e.printStackTrace();
+                    }
+                });
 
-        // To show verbose logging, run:
-        // adb shell setprop log.tag.MainActivity VERBOSE
-        if (Log.isLoggable(TAG, Log.VERBOSE)) {
-            processor.addPacketCallback(
-                    OUTPUT_LANDMARKS_STREAM_NAME_FACE_MESH,
-                    (packet) -> {
-                        byte[] landmarksRaw = PacketGetter.getProtoBytes(packet);
-                        //Log.v(TAG, "Received face mesh landmarks packet.");
-                        try {
-                            NormalizedLandmarkList multiFaceLandmarks = NormalizedLandmarkList.parseFrom(landmarksRaw);
-                            JSONObject landmarks_json_object = getLandmarksJsonObject(multiFaceLandmarks, "face");
-                            JSONObject face_landmarks_json_object = getFaceLandmarkJsonObject(landmarks_json_object);
-                            publishJsonMessage(face_landmarks_json_object);
-                            //json_message = face_landmarks_json_object.toString();
-                        } catch (InvalidProtocolBufferException | JSONException e) {
-                            e.printStackTrace();
-                        }
-                    });
-/*
-            processor.addPacketCallback(
-                    OUTPUT_LANDMARKS_STREAM_NAME_RIGHT_HAND,
-                    (packet) -> {
-                        byte[] landmarksRaw = PacketGetter.getProtoBytes(packet);
-                        //Log.v(TAG, "Received right hand landmarks packet.");
-                        try {
-                            NormalizedLandmarkList RightHandLandmarks = NormalizedLandmarkList.parseFrom(landmarksRaw);
-                            //+ getMultiFaceLandmarksDebugString(multiFaceLandmarks));
-                            //String right_hand_landmarks = getHolisticLandmarksDebugString(RightHandLandmarks, "right_hand");
-                            //publishMessage(right_hand_landmarks);
-                            JSONObject landmarks_json_object = getLandmarksJsonObject(RightHandLandmarks, "right_hand");
-                            publishJsonMessage(landmarks_json_object);
-                        } catch (InvalidProtocolBufferException | JSONException e) {
-                            e.printStackTrace();
-                        }
-                    });
+/*        processor.addPacketCallback(
+                OUTPUT_LANDMARKS_STREAM_NAME_RIGHT_HAND,
+                (packet) -> {
+                    byte[] landmarksRaw = PacketGetter.getProtoBytes(packet);
+                    //Log.v(TAG, "Received right hand landmarks packet.");
+                    try {
+                        NormalizedLandmarkList RightHandLandmarks = NormalizedLandmarkList.parseFrom(landmarksRaw);
+                        //+ getMultiFaceLandmarksDebugString(multiFaceLandmarks));
+                        //String right_hand_landmarks = getHolisticLandmarksDebugString(RightHandLandmarks, "right_hand");
+                        //publishMessage(right_hand_landmarks);
+                        JSONObject landmarks_json_object = getLandmarksJsonObject(RightHandLandmarks, "right_hand");
+                        publishJsonMessage(landmarks_json_object);
+                    } catch (InvalidProtocolBufferException | JSONException e) {
+                        e.printStackTrace();
+                    }
+                });
 
-            processor.addPacketCallback(
-                    OUTPUT_LANDMARKS_STREAM_NAME_LEFT_HAND,
-                    (packet) -> {
-                        byte[] landmarksRaw = PacketGetter.getProtoBytes(packet);
-                        //Log.v(TAG, "Received left hand landmarks packet.");
-                        try {
-                            NormalizedLandmarkList LeftHandLandmarks = NormalizedLandmarkList.parseFrom(landmarksRaw);
-                            //+ getMultiFaceLandmarksDebugString(multiFaceLandmarks));
-                            //String left_hand_landmarks = getHolisticLandmarksDebugString(LeftHandLandmarks, "left_hand");
-                            //publishMessage(left_hand_landmarks);
-                            JSONObject landmarks_json_object = getLandmarksJsonObject(LeftHandLandmarks, "left_hand");
-                            publishJsonMessage(landmarks_json_object);
-                        } catch (InvalidProtocolBufferException | JSONException e) {
-                            e.printStackTrace();
-                        }
-                    });
+        processor.addPacketCallback(
+                OUTPUT_LANDMARKS_STREAM_NAME_LEFT_HAND,
+                (packet) -> {
+                    byte[] landmarksRaw = PacketGetter.getProtoBytes(packet);
+                    //Log.v(TAG, "Received left hand landmarks packet.");
+                    try {
+                        NormalizedLandmarkList LeftHandLandmarks = NormalizedLandmarkList.parseFrom(landmarksRaw);
+                        //+ getMultiFaceLandmarksDebugString(multiFaceLandmarks));
+                        //String left_hand_landmarks = getHolisticLandmarksDebugString(LeftHandLandmarks, "left_hand");
+                        //publishMessage(left_hand_landmarks);
+                        JSONObject landmarks_json_object = getLandmarksJsonObject(LeftHandLandmarks, "left_hand");
+                        publishJsonMessage(landmarks_json_object);
+                    } catch (InvalidProtocolBufferException | JSONException e) {
+                        e.printStackTrace();
+                    }
+                });
 
-            processor.addPacketCallback(
-                    OUTPUT_LANDMARKS_STREAM_NAME_POSE,
-                    (packet) -> {
-                        byte[] landmarksRaw = PacketGetter.getProtoBytes(packet);
-                        //Log.v(TAG, "Received pose landmarks packet.");
-                        try {
-                            NormalizedLandmarkList PoseLandmarks = NormalizedLandmarkList.parseFrom(landmarksRaw);
-                            //+ getMultiFaceLandmarksDebugString(multiFaceLandmarks));
-                            //String pose_landmarks = getHolisticLandmarksDebugString(PoseLandmarks, "pose");
-                            //publishMessage(pose_landmarks);
-                            JSONObject landmarks_json_object = getLandmarksJsonObject(PoseLandmarks, "pose");
-                            publishJsonMessage(landmarks_json_object);
-                        } catch (InvalidProtocolBufferException | JSONException e) {
-                            e.printStackTrace();
-                        }
-                    });*/
-        }
+        processor.addPacketCallback(
+                OUTPUT_LANDMARKS_STREAM_NAME_POSE,
+                (packet) -> {
+                    byte[] landmarksRaw = PacketGetter.getProtoBytes(packet);
+                    //Log.v(TAG, "Received pose landmarks packet.");
+                    try {
+                        NormalizedLandmarkList PoseLandmarks = NormalizedLandmarkList.parseFrom(landmarksRaw);
+                        //+ getMultiFaceLandmarksDebugString(multiFaceLandmarks));
+                        //String pose_landmarks = getHolisticLandmarksDebugString(PoseLandmarks, "pose");
+                        //publishMessage(pose_landmarks);
+                        JSONObject landmarks_json_object = getLandmarksJsonObject(PoseLandmarks, "pose");
+                        publishJsonMessage(landmarks_json_object);
+                    } catch (InvalidProtocolBufferException | JSONException e) {
+                        e.printStackTrace();
+                    }
+                });*/
     }
 
     private JSONObject getFaceLandmarkJsonObject(JSONObject landmarks_json_object) throws JSONException {
@@ -615,48 +629,65 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         if (location == "face"){
             int landmarkIndex = 0;
             for (NormalizedLandmark landmark : landmarks.getLandmarkList()){
-                JSONObject landmarks_json_object_part = new JSONObject();
+                List<String> list = new ArrayList<String>();
+                list.add(String.format("%.8f", landmark.getX()));
+                list.add(String.format("%.8f", landmark.getY()));
+                list.add(String.format("%.8f", landmark.getZ()));
+
+                /*JSONObject landmarks_json_object_part = new JSONObject();
                 landmarks_json_object_part.put("X", landmark.getX());
                 landmarks_json_object_part.put("Y", landmark.getY());
-                landmarks_json_object_part.put("Z", landmark.getZ());
+                landmarks_json_object_part.put("Z", landmark.getZ());*/
                 String tag = "face_landmark[" + landmarkIndex + "]";
-                landmarks_json_object.put(tag, landmarks_json_object_part);
+                landmarks_json_object.put(tag, list);
                 ++landmarkIndex;
             }
         }
         else if(location == "right_hand"){
             int rlandmarkIndex = 0;
             for (NormalizedLandmark landmark : landmarks.getLandmarkList()) {
-                JSONObject landmarks_json_object_part = new JSONObject();
+                List<String> list = new ArrayList<String>();
+                list.add(String.format("%.8f", landmark.getX()));
+                list.add(String.format("%.8f", landmark.getY()));
+                list.add(String.format("%.8f", landmark.getZ()));
+                /*JSONObject landmarks_json_object_part = new JSONObject();
                 landmarks_json_object_part.put("X", landmark.getX());
                 landmarks_json_object_part.put("Y", landmark.getY());
-                landmarks_json_object_part.put("Z", landmark.getZ());
+                landmarks_json_object_part.put("Z", landmark.getZ());*/
                 String tag = "right_hand_landmark[" + rlandmarkIndex + "]";
-                landmarks_json_object.put(tag, landmarks_json_object_part);
+                landmarks_json_object.put(tag, list);
                 ++rlandmarkIndex;
             }
         }
         else if(location == "left_hand"){
                 int llandmarkIndex = 0;
                 for (NormalizedLandmark landmark : landmarks.getLandmarkList()) {
-                    JSONObject landmarks_json_object_part = new JSONObject();
+                    List<String> list = new ArrayList<String>();
+                    list.add(String.format("%.8f", landmark.getX()));
+                    list.add(String.format("%.8f", landmark.getY()));
+                    list.add(String.format("%.8f", landmark.getZ()));
+                    /*JSONObject landmarks_json_object_part = new JSONObject();
                     landmarks_json_object_part.put("X", landmark.getX());
                     landmarks_json_object_part.put("Y", landmark.getY());
-                    landmarks_json_object_part.put("Z", landmark.getZ());
+                    landmarks_json_object_part.put("Z", landmark.getZ());*/
                     String tag = "left_hand_landmark[" + llandmarkIndex + "]";
-                    landmarks_json_object.put(tag, landmarks_json_object_part);
+                    landmarks_json_object.put(tag, list);
                     ++llandmarkIndex;
                 }
         }
         else if(location == "pose"){
             int plandmarkIndex = 0;
             for (NormalizedLandmark landmark : landmarks.getLandmarkList()) {
-                JSONObject landmarks_json_object_part = new JSONObject();
+                List<String> list = new ArrayList<String>();
+                list.add(String.format("%.8f", landmark.getX()));
+                list.add(String.format("%.8f", landmark.getY()));
+                list.add(String.format("%.8f", landmark.getZ()));
+                /*JSONObject landmarks_json_object_part = new JSONObject();
                 landmarks_json_object_part.put("X", landmark.getX());
                 landmarks_json_object_part.put("Y", landmark.getY());
-                landmarks_json_object_part.put("Z", landmark.getZ());
+                landmarks_json_object_part.put("Z", landmark.getZ());*/
                 String tag = "pose_landmark[" + plandmarkIndex + "]";
-                landmarks_json_object.put(tag, landmarks_json_object_part);
+                landmarks_json_object.put(tag, list);
                 ++plandmarkIndex;
             }
         }
@@ -913,6 +944,106 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             });
             dialog.show();
         }
+    }
+
+    private void call() {
+        List<PeerConnection.IceServer> iceServers = new ArrayList<>();
+        iceServers.add(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer());
+        peerConnection = peerConnectionFactory.createPeerConnection(iceServers, new PeerConnectionAdapter("localconnection") {
+            @Override
+            public void onIceCandidate(IceCandidate iceCandidate) {
+                super.onIceCandidate(iceCandidate);
+                SignalingClient.get().sendIceCandidate(iceCandidate);
+            }
+
+            @Override
+            public void onAddStream(MediaStream mediaStream) {
+                super.onAddStream(mediaStream);
+                VideoTrack remoteVideoTrack = mediaStream.videoTracks.get(0);
+                runOnUiThread(() -> {
+                    remoteVideoTrack.addSink(remoteView);
+                });
+            }
+        });
+
+        peerConnection.addStream(mediaStream);
+    }
+
+    private VideoCapturer createCameraCapturer(boolean isFront) {
+        Camera1Enumerator enumerator = new Camera1Enumerator(false);
+        final String[] deviceNames = enumerator.getDeviceNames();
+
+        // First, try to find front facing camera
+        for (String deviceName : deviceNames) {
+            if (isFront ? enumerator.isFrontFacing(deviceName) : enumerator.isBackFacing(deviceName)) {
+                VideoCapturer videoCapturer = enumerator.createCapturer(deviceName, null);
+
+                if (videoCapturer != null) {
+                    return videoCapturer;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    @Override
+    public void onCreateRoom() {
+
+    }
+
+    @Override
+    public void onPeerJoined() {
+
+    }
+
+    @Override
+    public void onSelfJoined() {
+        peerConnection.createOffer(new SdpAdapter("local offer sdp") {
+            @Override
+            public void onCreateSuccess(SessionDescription sessionDescription) {
+                super.onCreateSuccess(sessionDescription);
+                peerConnection.setLocalDescription(new SdpAdapter("local set local"), sessionDescription);
+                SignalingClient.get().sendSessionDescription(sessionDescription);
+            }
+        }, new MediaConstraints());
+    }
+
+    @Override
+    public void onPeerLeave(String msg) {
+
+    }
+
+    @Override
+    public void onOfferReceived(JSONObject data) {
+        runOnUiThread(() -> {
+            peerConnection.setRemoteDescription(new SdpAdapter("localSetRemote"),
+                    new SessionDescription(SessionDescription.Type.OFFER, data.optString("sdp")));
+            peerConnection.createAnswer(new SdpAdapter("localAnswerSdp") {
+                @Override
+                public void onCreateSuccess(SessionDescription sdp) {
+                    super.onCreateSuccess(sdp);
+                    peerConnection.setLocalDescription(new SdpAdapter("localSetLocal"), sdp);
+                    SignalingClient.get().sendSessionDescription(sdp);
+                }
+            }, new MediaConstraints());
+
+        });
+    }
+
+    @Override
+    public void onAnswerReceived(JSONObject data) {
+        peerConnection.setRemoteDescription(new SdpAdapter("localSetRemote"),
+                new SessionDescription(SessionDescription.Type.ANSWER, data.optString("sdp")));
+    }
+
+    @Override
+    public void onIceCandidateReceived(JSONObject data) {
+        peerConnection.addIceCandidate(new IceCandidate(
+                data.optString("id"),
+                data.optInt("label"),
+                data.optString("candidate")
+        ));
     }
 
 }
