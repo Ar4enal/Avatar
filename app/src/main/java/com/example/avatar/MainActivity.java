@@ -52,15 +52,22 @@ import com.rabbitmq.client.ConnectionFactory;
 
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.webrtc.AudioSource;
+import org.webrtc.AudioTrack;
 import org.webrtc.Camera1Enumerator;
+import org.webrtc.DefaultVideoDecoderFactory;
+import org.webrtc.DefaultVideoEncoderFactory;
+import org.webrtc.EglBase;
 import org.webrtc.IceCandidate;
 import org.webrtc.MediaConstraints;
 import org.webrtc.MediaStream;
 import org.webrtc.PeerConnection;
 import org.webrtc.PeerConnectionFactory;
 import org.webrtc.SessionDescription;
+import org.webrtc.SurfaceTextureHelper;
 import org.webrtc.SurfaceViewRenderer;
 import org.webrtc.VideoCapturer;
+import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener, SignalingClient.Callback{
@@ -123,7 +130,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         bindView();
-        final String[] serverAddress = {""};
 
         if (android.os.Build.VERSION.SDK_INT > 9) {
             StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
@@ -131,19 +137,38 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         }
         previewDisplayView = new SurfaceView(this);
         setupPreviewDisplayView();
+        EglBase.Context eglBaseContext = EglBase.create().getEglBaseContext();
 
-        //setupConnectionFactory();
-        //publishToAMQP();
-/*        confirm.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                serverAddress[0] = server_ip.getText().toString();
-                send_TCP(serverAddress[0], port);
-                Log.v("TCP server ip", serverAddress[0]);
-            }
-        });*/
-        //send_TCP(serveraddress, port);
+        // create PeerConnectionFactory
+        PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions
+                .builder(this)
+                .createInitializationOptions());
+        PeerConnectionFactory.Options options = new PeerConnectionFactory.Options();
+        DefaultVideoEncoderFactory defaultVideoEncoderFactory =
+                new DefaultVideoEncoderFactory(eglBaseContext, true, true);
+        DefaultVideoDecoderFactory defaultVideoDecoderFactory =
+                new DefaultVideoDecoderFactory(eglBaseContext);
+        peerConnectionFactory = PeerConnectionFactory.builder()
+                .setOptions(options)
+                .setVideoEncoderFactory(defaultVideoEncoderFactory)
+                .setVideoDecoderFactory(defaultVideoDecoderFactory)
+                .createPeerConnectionFactory();
 
+        // create VideoCapturer
+        VideoCapturer videoCapturer = createCameraCapturer(true);
+        VideoSource videoSource = peerConnectionFactory.createVideoSource(videoCapturer.isScreencast());
+        // create VideoTrack
+        VideoTrack videoTrack = peerConnectionFactory.createVideoTrack("100", videoSource);
+
+        AudioSource audioSource = peerConnectionFactory.createAudioSource(new MediaConstraints());
+        AudioTrack audioTrack = peerConnectionFactory.createAudioTrack("101", audioSource);
+
+        mediaStream = peerConnectionFactory.createLocalMediaStream("mediaStream");
+        mediaStream.addTrack(videoTrack);
+        mediaStream.addTrack(audioTrack);
+
+        SignalingClient.get().setCallback(this);
+        call();
 
         // Initialize asset manager so that MediaPipe native libraries can access the app assets, e.g.,
         // binary graphs.
@@ -227,401 +252,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                         e.printStackTrace();
                     }
                 });*/
-    }
-
-    private JSONObject getFaceLandmarkJsonObject(JSONObject landmarks_json_object) throws JSONException {
-        JSONObject face_landmarks_json_object = new JSONObject();
-
-        String head_turn = getHeadTurn(landmarks_json_object);
-        face_landmarks_json_object.put("head_turn", head_turn); //get head rotation
-
-        String head_rotation = getHeadRotation(landmarks_json_object);
-        face_landmarks_json_object.put("head_rotation", head_rotation); //get head rotation
-
-        String mouth = getMouthDistance(landmarks_json_object);
-        face_landmarks_json_object.put("open_mouth", mouth); //get mouth distance
-
-        String left_eye = getLeftEyeDistance(landmarks_json_object);
-        face_landmarks_json_object.put("blink_left_eye", left_eye); //get left_eye
-
-        String right_eye = getRightEyeDistance(landmarks_json_object);
-        face_landmarks_json_object.put("blink_right_eye", right_eye); //get right_eye
-
-        String left_eyebrow = getLeftEyebrow(landmarks_json_object);
-        face_landmarks_json_object.put("left_eyebrow", left_eyebrow); //get left_eyebrow
-
-        String right_eyebrow = getRightEyebrow(landmarks_json_object);
-        face_landmarks_json_object.put("right_eyebrow", right_eyebrow); //get right_eyebrow
-
-        String left_mouth_angle = getLeftMouthAngle(landmarks_json_object);
-        face_landmarks_json_object.put("left_mouth_angle", left_mouth_angle); //get left_mouth_angle
-
-        String right_mouth_angle = getRightMouthAngle(landmarks_json_object);
-        face_landmarks_json_object.put("right_mouth_angle", right_mouth_angle); //get right_mouth_angle
-
-        return face_landmarks_json_object;
-    }
-
-    private String getMouthDistance(JSONObject landmarks_json_object){
-        String mouth_distance_rank = "";
-        try {
-            JSONObject up_Y = landmarks_json_object.getJSONObject("face_landmark[13]");
-            double up_mouth_Y = up_Y.getDouble("Y");
-            JSONObject down_Y = landmarks_json_object.getJSONObject("face_landmark[14]");
-            double down_mouth_Y = down_Y.getDouble("Y");
-            double mouth_distance = Double.parseDouble(String.format("%.3f", down_mouth_Y - up_mouth_Y));
-            if(mouth_distance <= 0.005){
-                mouth_distance_rank = "0";
-            }
-            else if(mouth_distance >= 0.09){
-                mouth_distance_rank = "49";
-            }
-            else{
-                mouth_distance_rank = String.valueOf((int)Math.round(mouth_distance*565-1.825));
-            }
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-        return mouth_distance_rank; //0~49
-    }
-
-    private String getLeftEyeDistance(JSONObject landmarks_json_object){
-        String blink_left_eye = "0";
-        try {
-            JSONObject left_up_Z = landmarks_json_object.getJSONObject("face_landmark[4]");
-            double center = left_up_Z.getDouble("Z");
-            JSONObject left_up_Y = landmarks_json_object.getJSONObject("face_landmark[386]");
-            double left_up_eye_Y = left_up_Y.getDouble("Y");
-            JSONObject left_down_Y = landmarks_json_object.getJSONObject("face_landmark[374]");
-            double left_down_eye_Y = left_down_Y.getDouble("Y");
-            double left_eye_distance = left_down_eye_Y - left_up_eye_Y;
-            double center_Z = Double.parseDouble(String.format("%.2f", center));
-            //Log.v("left", String.valueOf(left_eye_distance));
-            //Log.v("center", String.valueOf(center_Z));
-            if (left_eye_distance < center_Z*(-0.1)){
-                blink_left_eye = "1";
-            }
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-        return blink_left_eye;  //0:open 1:blink
-    }
-
-    private String getRightEyeDistance(JSONObject landmarks_json_object){
-        String blink_right_eye = "0";
-        try {
-            JSONObject right_up_Z = landmarks_json_object.getJSONObject("face_landmark[4]");
-            double center = right_up_Z.getDouble("Z");
-            JSONObject right_up_Y = landmarks_json_object.getJSONObject("face_landmark[159]");
-            double right_up_eye_Y = right_up_Y.getDouble("Y");
-            JSONObject right_down_Y = landmarks_json_object.getJSONObject("face_landmark[145]");
-            double right_down_eye_Y = right_down_Y.getDouble("Y");
-            double right_eye_distance = right_down_eye_Y - right_up_eye_Y;
-            double center_Z = Double.parseDouble(String.format("%.2f", center));
-            //Log.v("right", String.valueOf(right_eye_distance));
-            //Log.v("center", String.valueOf(center_Z));
-            if (right_eye_distance < center_Z*(-0.1)){
-                blink_right_eye = "1";
-            }
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-        return blink_right_eye;  //0:open 1:blink
-    }
-
-    private String getLeftEyebrow(JSONObject landmarks_json_object){
-        String left_eyebrow = "0";
-        try {
-            JSONObject Z = landmarks_json_object.getJSONObject("face_landmark[168]");
-            double center = Z.getDouble("Z");
-            JSONObject left_up_Y = landmarks_json_object.getJSONObject("face_landmark[336]");
-            double left_up_eye_Y = left_up_Y.getDouble("Y");
-            JSONObject left_down_Y = landmarks_json_object.getJSONObject("face_landmark[413]");
-            double left_down_eye_Y = left_down_Y.getDouble("Y");
-            double left_eye_distance = left_down_eye_Y - left_up_eye_Y;
-            double center_Z = Double.parseDouble(String.format("%.3f", center));
-
-            JSONObject y1 = landmarks_json_object.getJSONObject("face_landmark[356]");
-            double left_ear_y1 = y1.getDouble("Y");
-            JSONObject y2 = landmarks_json_object.getJSONObject("face_landmark[127]");
-            double right_ear_y2 = y2.getDouble("Y");
-            JSONObject center_y = landmarks_json_object.getJSONObject("face_landmark[168]");
-            double nose_center_y = center_y.getDouble("Y");
-            double ear_center_y = (left_ear_y1 + right_ear_y2)/2;
-            double y = Double.parseDouble(String.format("%.2f", nose_center_y - ear_center_y));
-
-            /*Log.v("left", String.valueOf(left_eye_distance));
-            Log.v("left_center", String.valueOf(center_Z));
-            Log.v("y", String.valueOf(y+0.03));*/
-            double c = center_Z * -1 + 0.01;
-            if (left_eye_distance - c >= 0.013){
-                left_eyebrow = "1";
-            }else if (left_eye_distance - c <= 0.001){
-                left_eyebrow = "-1";
-            }
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-        return left_eyebrow;
-    }
-
-    private String getRightEyebrow(JSONObject landmarks_json_object){
-        String right_eyebrow = "0";
-        try {
-            JSONObject Z = landmarks_json_object.getJSONObject("face_landmark[168]");
-            double center = Z.getDouble("Z");
-            JSONObject right_up_Y = landmarks_json_object.getJSONObject("face_landmark[107]");
-            double right_up_eye_Y = right_up_Y.getDouble("Y");
-            JSONObject right_down_Y = landmarks_json_object.getJSONObject("face_landmark[189]");
-            double right_down_eye_Y = right_down_Y.getDouble("Y");
-            double right_eye_distance = right_down_eye_Y - right_up_eye_Y;
-            double center_Z = Double.parseDouble(String.format("%.3f", center));
-
-            JSONObject y1 = landmarks_json_object.getJSONObject("face_landmark[356]");
-            double left_ear_y1 = y1.getDouble("Y");
-            JSONObject y2 = landmarks_json_object.getJSONObject("face_landmark[127]");
-            double right_ear_y2 = y2.getDouble("Y");
-            JSONObject center_y = landmarks_json_object.getJSONObject("face_landmark[168]");
-            double nose_center_y = center_y.getDouble("Y");
-            double ear_center_y = (left_ear_y1 + right_ear_y2)/2;
-            double y = Double.parseDouble(String.format("%.2f", nose_center_y - ear_center_y));
-
-            /*Log.v("right", String.valueOf(right_eye_distance));
-            Log.v("right_center", String.valueOf(center_Z));
-            Log.v("y", String.valueOf(y+0.03));*/
-            double c = center_Z * -1 + 0.01;
-            if (right_eye_distance - c >= 0.013){
-                right_eyebrow = "1";
-            }else if (right_eye_distance - c <= 0.001){
-                right_eyebrow = "-1";
-            }
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-        return right_eyebrow;
-    }
-
-    private String getRightMouthAngle(JSONObject landmarks_json_object){
-        String mouth_angle = "0";
-        try {
-            JSONObject x1 = landmarks_json_object.getJSONObject("face_landmark[267]");
-            double left_up_mouth_x1 = x1.getDouble("X");
-            JSONObject x2 = landmarks_json_object.getJSONObject("face_landmark[409]");
-            double left_up_mouth_x2 = x2.getDouble("X");
-            JSONObject y1 = landmarks_json_object.getJSONObject("face_landmark[267]");
-            double left_up_mouth_y1 = y1.getDouble("Y");
-            JSONObject y2 = landmarks_json_object.getJSONObject("face_landmark[409]");
-            double left_up_mouth_y2 = y2.getDouble("Y");
-
-            JSONObject x3 = landmarks_json_object.getJSONObject("face_landmark[312]");
-            double left_down_mouth_x3 = x3.getDouble("X");
-            JSONObject x4 = landmarks_json_object.getJSONObject("face_landmark[415]");
-            double left_down_mouth_x4 = x4.getDouble("X");
-            JSONObject y3 = landmarks_json_object.getJSONObject("face_landmark[312]");
-            double left_down_mouth_y3 = y3.getDouble("Y");
-            JSONObject y4 = landmarks_json_object.getJSONObject("face_landmark[415]");
-            double left_down_mouth_y4 = y4.getDouble("Y");
-            double angle1 = Math.atan2(left_up_mouth_y1 - left_up_mouth_y2, left_up_mouth_x1 - left_up_mouth_x2);
-            double angle2 = Math.atan2(left_down_mouth_y3 - left_down_mouth_y4, left_down_mouth_x3 - left_down_mouth_x4);
-            double angle = Math.abs(angle1) - Math.abs(angle2);
-            angle = Double.parseDouble(String.format("%.2f", angle));
-            //Log.v("right_angle", String.valueOf(angle));
-
-            if (angle >-0.2 & angle <= -0.1){
-                mouth_angle = "1";
-            }else if (angle >-0.1 & angle <= 0){
-                mouth_angle = "2";
-            }else if (angle >0 & angle <= 0.1){
-                mouth_angle = "3";
-            }
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-        return mouth_angle;  //0~3
-    }
-
-    private String getLeftMouthAngle(JSONObject landmarks_json_object){
-        String mouth_angle = "0";
-        try {
-            JSONObject x1 = landmarks_json_object.getJSONObject("face_landmark[37]");
-            double left_up_mouth_x1 = x1.getDouble("X");
-            JSONObject x2 = landmarks_json_object.getJSONObject("face_landmark[185]");
-            double left_up_mouth_x2 = x2.getDouble("X");
-            JSONObject y1 = landmarks_json_object.getJSONObject("face_landmark[37]");
-            double left_up_mouth_y1 = y1.getDouble("Y");
-            JSONObject y2 = landmarks_json_object.getJSONObject("face_landmark[185]");
-            double left_up_mouth_y2 = y2.getDouble("Y");
-
-            JSONObject x3 = landmarks_json_object.getJSONObject("face_landmark[82]");
-            double left_down_mouth_x3 = x3.getDouble("X");
-            JSONObject x4 = landmarks_json_object.getJSONObject("face_landmark[191]");
-            double left_down_mouth_x4 = x4.getDouble("X");
-            JSONObject y3 = landmarks_json_object.getJSONObject("face_landmark[82]");
-            double left_down_mouth_y3 = y3.getDouble("Y");
-            JSONObject y4 = landmarks_json_object.getJSONObject("face_landmark[191]");
-            double left_down_mouth_y4 = y4.getDouble("Y");
-            double angle1 = Math.atan2(left_up_mouth_y1 - left_up_mouth_y2, left_up_mouth_x1 - left_up_mouth_x2);
-            double angle2 = Math.atan2(left_down_mouth_y3 - left_down_mouth_y4, left_down_mouth_x3 - left_down_mouth_x4);
-            double angle = Math.abs(angle1) - Math.abs(angle2);
-            angle = Double.parseDouble(String.format("%.2f", angle));
-            //Log.v("left_angle", String.valueOf(angle));
-
-            if (angle >0.1 & angle <= 0.2){
-                mouth_angle = "1";
-            }else if (angle >0 & angle <= 0.1){
-                mouth_angle = "2";
-            }else if (angle >-0.1 & angle <= 0){
-                mouth_angle = "3";
-            }
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-        return mouth_angle;  //0~3
-    }
-
-    private String getHeadTurn(JSONObject landmarks_json_object){
-        String head_turn = "";
-        try {
-            JSONObject x1 = landmarks_json_object.getJSONObject("face_landmark[356]");
-            double left_ear_x1 = x1.getDouble("X");
-            JSONObject x2 = landmarks_json_object.getJSONObject("face_landmark[127]");
-            double right_ear_x2 = x2.getDouble("X");
-            JSONObject y1 = landmarks_json_object.getJSONObject("face_landmark[356]");
-            double left_ear_y1 = y1.getDouble("Y");
-            JSONObject y2 = landmarks_json_object.getJSONObject("face_landmark[127]");
-            double right_ear_y2 = y2.getDouble("Y");
-            JSONObject z1 = landmarks_json_object.getJSONObject("face_landmark[356]");
-            double left_ear_z1 = z1.getDouble("Z");
-            JSONObject z2 = landmarks_json_object.getJSONObject("face_landmark[127]");
-            double right_ear_z2 = z2.getDouble("Z");
-
-            JSONObject center_x = landmarks_json_object.getJSONObject("face_landmark[168]");
-            double nose_center_x = center_x.getDouble("X");
-            JSONObject center_y = landmarks_json_object.getJSONObject("face_landmark[168]");
-            double nose_center_y = center_y.getDouble("Y");
-            JSONObject center_z = landmarks_json_object.getJSONObject("face_landmark[168]");
-            double nose_center_z = center_z.getDouble("Z");
-
-            double ear_center_x = (left_ear_x1 + right_ear_x2)/2;
-            double ear_center_y = (left_ear_y1 + right_ear_y2)/2;
-            double ear_center_z = (left_ear_z1 + right_ear_z2)/2;
-
-            double x = Double.parseDouble(String.format("%.2f", nose_center_x - ear_center_x));
-            double y = Double.parseDouble(String.format("%.2f", nose_center_y - ear_center_y));
-            double z = Double.parseDouble(String.format("%.2f", nose_center_z - ear_center_z));
-            head_turn = x + "," + y + "," + z;
-            //Log.v("head_turn", String.valueOf(head_turn));
-
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-        return head_turn;
-    }
-
-    private String getHeadRotation(JSONObject landmarks_json_object){
-        String head_rotation = "";
-        try {
-            JSONObject x1 = landmarks_json_object.getJSONObject("face_landmark[356]");
-            double left_ear_x1 = x1.getDouble("X");
-            JSONObject x2 = landmarks_json_object.getJSONObject("face_landmark[127]");
-            double right_ear_x2 = x2.getDouble("X");
-            JSONObject y1 = landmarks_json_object.getJSONObject("face_landmark[356]");
-            double left_ear_y1 = y1.getDouble("Y");
-            JSONObject y2 = landmarks_json_object.getJSONObject("face_landmark[127]");
-            double right_ear_y2 = y2.getDouble("Y");
-            double angle = Double.parseDouble(String.format("%.2f",(right_ear_x2 - left_ear_x1)/(right_ear_y2 - left_ear_y1)));
-            //Log.v("head_rotation", String.valueOf(angle));
-            if (angle <= 13 & angle >= -13){
-                head_rotation = String.valueOf(angle);
-            }
-            else{
-                head_rotation = "0";
-            }
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-        return head_rotation;
-    }
-
-
-    private static String getHolisticLandmarksDebugString(NormalizedLandmarkList landmarks, String location) {
-        String landmarksString = "";
-        if (location == "face"){
-            int landmarkIndex = 0;
-            for (NormalizedLandmark landmark : landmarks.getLandmarkList()) {
-                landmarksString +=
-                        "\t\tFaceLandmark["
-                                + landmarkIndex
-                                + "]: ("
-                                + landmark.getX()
-                                + ", "
-                                + landmark.getY()
-                                + ", "
-                                + landmark.getZ()
-                                + ")\n";
-                ++landmarkIndex;
-        }}
-        else if(location == "iris"){
-            int irislandmarkIndex = 0;
-            for (NormalizedLandmark landmark : landmarks.getLandmarkList()) {
-                landmarksString +=
-                        "\t\tIrisLandmark["
-                                + irislandmarkIndex
-                                + "]: ("
-                                + landmark.getX()
-                                + ", "
-                                + landmark.getY()
-                                + ", "
-                                + landmark.getZ()
-                                + ")\n";
-                ++irislandmarkIndex;
-            }}
-        else if(location == "right_hand"){
-                int rhlandmarkIndex = 0;
-                for (NormalizedLandmark landmark : landmarks.getLandmarkList()) {
-                    landmarksString +=
-                            "\t\tRightHandLandmark["
-                                    + rhlandmarkIndex
-                                    + "]: ("
-                                    + landmark.getX()
-                                    + ", "
-                                    + landmark.getY()
-                                    + ", "
-                                    + landmark.getZ()
-                                    + ")\n";
-                    ++rhlandmarkIndex;
-        }}
-        else if(location == "left_hand"){
-                    int lhlandmarkIndex = 0;
-                    for (NormalizedLandmark landmark : landmarks.getLandmarkList()) {
-                        landmarksString +=
-                                "\t\tLeftHandLandmark["
-                                        + lhlandmarkIndex
-                                        + "]: ("
-                                        + landmark.getX()
-                                        + ", "
-                                        + landmark.getY()
-                                        + ", "
-                                        + landmark.getZ()
-                                        + ")\n";
-                        ++lhlandmarkIndex;
-        }}
-        else if(location == "pose"){
-                        int plandmarkIndex = 0;
-                        for (NormalizedLandmark landmark : landmarks.getLandmarkList()) {
-                            landmarksString +=
-                                    "\t\tPoseLandmark["
-                                            + plandmarkIndex
-                                            + "]: ("
-                                            + landmark.getX()
-                                            + ", "
-                                            + landmark.getY()
-                                            + ", "
-                                            + landmark.getZ()
-                                            + ")\n";
-                            ++plandmarkIndex;
-        }}
-        return landmarksString;
     }
 
     private static JSONObject getLandmarksJsonObject(NormalizedLandmarkList landmarks, String location) throws JSONException {
@@ -956,14 +586,14 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 SignalingClient.get().sendIceCandidate(iceCandidate);
             }
 
-            @Override
+/*            @Override
             public void onAddStream(MediaStream mediaStream) {
                 super.onAddStream(mediaStream);
                 VideoTrack remoteVideoTrack = mediaStream.videoTracks.get(0);
                 runOnUiThread(() -> {
                     remoteVideoTrack.addSink(remoteView);
                 });
-            }
+            }*/
         });
 
         peerConnection.addStream(mediaStream);
